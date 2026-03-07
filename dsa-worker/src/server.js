@@ -6,19 +6,17 @@ import { codeExecutionQueue } from './config/queue.js'
 const app = express()
 const PORT = process.env.WORKER_PORT || 5001
 
-// CORS - Allow frontend to access
 app.use(cors({
     origin: [
         'http://localhost:3000',
         'https://getplaced.tech',
-        'https://www.getplaced.tech'  // Add www subdomain
+        'https://www.getplaced.tech'
     ],
     credentials: true
 }))
 
 app.use(express.json())
 
-// Health check
 app.get('/health', (req, res) => {
     res.json({
         status: 'healthy',
@@ -27,11 +25,6 @@ app.get('/health', (req, res) => {
     })
 })
 
-/**
- * GET /api/status/:jobId
- * Returns job status directly from Redis/BullMQ
- * This endpoint is polled by frontend directly (bypassing main backend)
- */
 app.get('/api/status/:jobId', async (req, res) => {
     const { jobId } = req.params
     const timestamp = new Date().toISOString()
@@ -39,7 +32,6 @@ app.get('/api/status/:jobId', async (req, res) => {
     console.log(`[${timestamp}] 📊 Status request for job: ${jobId}`)
 
     try {
-        // Fetch job from BullMQ
         const job = await Job.fromId(codeExecutionQueue, jobId)
 
         if (!job) {
@@ -61,18 +53,16 @@ app.get('/api/status/:jobId', async (req, res) => {
             success: true,
             found: true,
             jobId: job.id,
-            status: state, // 'waiting', 'active', 'completed', 'failed'
+            status: state,
             progress,
             timestamp
         }
 
-        // Add result if completed
         if (state === 'completed') {
             response.result = job.returnvalue
             console.log(`[${timestamp}] 🎉 Job ${jobId} completed successfully`)
         }
 
-        // Add error if failed
         if (state === 'failed') {
             response.error = job.failedReason
             response.stacktrace = job.stacktrace

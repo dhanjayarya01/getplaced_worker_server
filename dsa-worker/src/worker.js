@@ -2,12 +2,12 @@ import dotenv from 'dotenv'
 import { Worker } from 'bullmq'
 import { connection } from './config/redis.js'
 import { codeExecutionQueue } from './config/queue.js'
-import judge0Service from './models/services/judge0.service.js'
-import codeWrapperService from './models/services/codeWrapper.service.js'
+import judge0Service from './services/judge0.service.js'
+import codeWrapperService from './services/codeWrapper.service.js'
 import { User, DSAProblem, Submission } from './models/index.js'
 import Redis from 'ioredis'
 import mongoose from 'mongoose'
-import './server.js' // Start API server alongside worker
+import './server.js'
 
 dotenv.config()
 
@@ -19,21 +19,17 @@ mongoose
         process.exit(1)
     })
 
-// Create separate Redis client for cache invalidation
 const redis = new Redis({
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT) || 6379,
-    // No password - server doesn't require it
     retryStrategy: () => null,
     enableOfflineQueue: false,
 })
 
-// Helper function to wrap code
 const wrapCode = (code, language, problem) => {
     return codeWrapperService.wrapCode(problem, code, language)
 }
 
-// Helper function to invalidate user cache
 async function invalidateUserCache(userId) {
     const keys = await redis.keys(`user:${userId}*`)
     if (keys.length > 0) {
@@ -41,7 +37,6 @@ async function invalidateUserCache(userId) {
     }
 }
 
-// Create code execution worker
 const codeExecutionWorker = new Worker(
     'code-execution',
     async (job) => {
@@ -55,7 +50,6 @@ const codeExecutionWorker = new Worker(
         console.log(`${timestamp()}    User: ${userId}`)
 
         try {
-            // Validate required data
             if (!code) {
                 throw new Error('Code is missing from job data')
             }
@@ -69,12 +63,10 @@ const codeExecutionWorker = new Worker(
                 throw new Error('Test cases are missing')
             }
 
-            // Step 1: Wrap code
             console.log(`${timestamp()} 🔵 STEP 1: Wrapping code...`)
             const wrappedCode = wrapCode(code, language, problem)
             console.log(`${timestamp()} 🟢 STEP 1 COMPLETE: Code wrapped`)
 
-            // Step 2: Submit to Judge0
             console.log(`${timestamp()} 🔵 STEP 2: Submitting to Judge0...`)
 
             const executionResult = await judge0Service.runTestCases(
@@ -88,7 +80,7 @@ const codeExecutionWorker = new Worker(
             console.log(`${timestamp()} 🟢 STEP 2 COMPLETE: Judge0 execution finished`)
             console.log(`${timestamp()}    Passed: ${executionResult.passedTestCases}/${executionResult.totalTestCases}`)
 
-            // Step 3: Determine submission status
+
 
             let submissionStatus = 'wrong-answer'
             if (executionResult.accepted) {
@@ -101,10 +93,7 @@ const codeExecutionWorker = new Worker(
                 submissionStatus = 'runtime-error'
             }
 
-            // Step 4: Save submission to database
             console.log(`${timestamp()} 🔵 STEP 4: Saving submission to DB...`)
-
-            // Save submission to database
             const submission = await Submission.findOneAndUpdate(
                 {
                     user: userId,
@@ -127,7 +116,7 @@ const codeExecutionWorker = new Worker(
 
             console.log(`💾 Submission saved: ${submission._id}`)
 
-            // Invalidate caches (non-blocking)
+
             try {
                 await invalidateUserCache(userId)
                 await redis.del(`dsa:problem:${problemId}:submissions:${userId}`)
@@ -138,12 +127,9 @@ const codeExecutionWorker = new Worker(
 
             console.log(`${timestamp()} 🟢 STEP 4 COMPLETE: Submission saved`)
 
-            // Invalidate caches
-            console.log(`${timestamp()} 🔵 STEP 5: Invalidating cache...`)
-
             console.log(`✅ Job ${job.id} completed successfully`)
 
-            // Return result
+
             return {
                 success: true,
                 submissionId: submission._id,
@@ -158,16 +144,16 @@ const codeExecutionWorker = new Worker(
         } catch (error) {
             console.error(`❌ Job ${job.id} failed:`, error.message)
             console.error(`❌ Error stack:`, error.stack)
-            throw error // BullMQ will handle retry
+            throw error
         }
     },
     {
         connection,
-        concurrency: 5, // Process 5 code submissions simultaneously
+        concurrency: 5,
     }
 )
 
-// Event listeners
+
 codeExecutionWorker.on('completed', (job, result) => {
     console.log(`✅ Job ${job.id} completed`)
     console.log(`   Status: ${result.status}`)
@@ -187,7 +173,7 @@ console.log('🚀 Code execution worker started')
 console.log('   Concurrency: 5')
 console.log('   Waiting for jobs...')
 
-// Graceful shutdown
+
 process.on('SIGTERM', async () => {
     console.log('📴 Shutting down worker...')
     await codeExecutionWorker.close()
