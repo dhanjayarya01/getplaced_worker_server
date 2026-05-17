@@ -25,48 +25,6 @@ app.get('/health', (req, res) => {
     })
 })
 
-app.get('/api/queue/stats', async (req, res) => {
-    try {
-        const counts = await codeExecutionQueue.getJobCounts('wait', 'active', 'completed', 'failed', 'delayed')
-        res.json({
-            ok: true,
-            active: counts.active,
-            waiting: counts.wait,
-            delayed: counts.delayed,
-            completed: counts.completed,
-            failed: counts.failed
-        })
-    } catch (error) {
-        res.status(500).json({ ok: false, error: error.message })
-    }
-})
-
-app.get('/api/queue/jobs', async (req, res) => {
-    try {
-        const jobs = await codeExecutionQueue.getJobs(['wait', 'active', 'delayed', 'completed', 'failed'], 0, 50)
-        const jobData = await Promise.all(jobs.map(async job => {
-            const state = await job.getState()
-            return {
-                id: job.id,
-                name: job.name,
-                state: state,
-                data: job.data,
-                failedReason: job.failedReason,
-                timestamp: job.timestamp,
-                processedOn: job.processedOn,
-                finishedOn: job.finishedOn,
-                progress: job.progress
-            }
-        }))
-        res.json({
-            ok: true,
-            jobs: jobData
-        })
-    } catch (error) {
-        res.status(500).json({ ok: false, error: error.message })
-    }
-})
-
 app.get('/api/status/:jobId', async (req, res) => {
     const { jobId } = req.params
     const timestamp = new Date().toISOString()
