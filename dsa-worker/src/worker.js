@@ -3,7 +3,7 @@ import { Worker } from 'bullmq'
 import { connection } from './config/redis.js'
 import { codeExecutionQueue } from './config/queue.js'
 import judge0Service from './services/judge0.service.js'
-import codeWrapperService from './services/codeWrapper.service.js'
+import { buildRunnableCode } from './services/runner.service.js'
 import { User, DSAProblem, Submission } from './models/index.js'
 import Redis from 'ioredis'
 import mongoose from 'mongoose'
@@ -26,8 +26,8 @@ const redis = new Redis({
     enableOfflineQueue: false,
 })
 
-const wrapCode = (code, language, problem) => {
-    return codeWrapperService.wrapCode(problem, code, language)
+const assembleCode = (code, language, problem) => {
+    return buildRunnableCode(problem, code, language)
 }
 
 async function invalidateUserCache(userId) {
@@ -63,9 +63,12 @@ const codeExecutionWorker = new Worker(
                 throw new Error('Test cases are missing')
             }
 
-            console.log(`${timestamp()} 🔵 STEP 1: Wrapping code...`)
-            const wrappedCode = wrapCode(code, language, problem)
-            console.log(`${timestamp()} 🟢 STEP 1 COMPLETE: Code wrapped`)
+            const problemForWrap =
+                (await DSAProblem.findById(problem._id).lean()) || problem
+
+            console.log(`${timestamp()} 🔵 STEP 1: Assembling runnable from DB runner...`)
+            const wrappedCode = assembleCode(code, language, problemForWrap)
+            console.log(`${timestamp()} 🟢 STEP 1 COMPLETE: Runnable assembled`)
 
             console.log(`${timestamp()} 🔵 STEP 2: Submitting to Judge0...`)
 
